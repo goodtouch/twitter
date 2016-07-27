@@ -331,14 +331,30 @@ module Twitter
         if !(File.basename(media) =~ /\.mp4$/)
           Twitter::REST::Request.new(self, :multipart_post, 'https://upload.twitter.com/1.1/media/upload.json', key: :media, file: media).perform
         else
+          init_params = {
+            command: 'INIT',
+            media_type: 'video/mp4',
+            total_bytes: media.size
+          }
+          puts "*** INIT"
+          if media.size > 15728640
+            init_params[:media_category] = 'tweet_video'
+            puts %{twurl -H upload.twitter.com "/1.1/media/upload.json" -d "command=INIT&media_type=video/mp4&media_category=tweet_video&total_bytes=#{media.size}"}
+          else
+            puts %{twurl -H upload.twitter.com "/1.1/media/upload.json" -d "command=INIT&media_type=video/mp4&total_bytes=#{media.size}"}
+          end
+
+
           init = Twitter::REST::Request.new(self, :post, 'https://upload.twitter.com/1.1/media/upload.json',
-                                            command: 'INIT',
-                                            media_type: 'video/mp4',
-                                            total_bytes: media.size).perform
+                                            init_params).perform
 
           until media.eof?
+            puts "*** CHUNK"
             chunk = media.read(5_000_000)
             seg ||= -1
+            File.binwrite("/Users/jpb/Desktop/segment#{seg+1}.mp4", chunk)
+            puts %{twurl -H upload.twitter.com "/1.1/media/upload.json" -d "command=APPEND&media_id=#{init[:media_id]}&segment_index=#{seg+1}" --file /Users/jpb/Desktop/segment#{seg+1}.mp4 --file-field "media"}
+
             Twitter::REST::Request.new(self, :multipart_post, 'https://upload.twitter.com/1.1/media/upload.json',
                                        command: 'APPEND',
                                        media_id: init[:media_id],
@@ -349,8 +365,30 @@ module Twitter
 
           media.close
 
-          Twitter::REST::Request.new(self, :post, 'https://upload.twitter.com/1.1/media/upload.json',
-                                     command: 'FINALIZE', media_id: init[:media_id]).perform
+          puts "*** FINALIZE"
+          puts %{twurl -H upload.twitter.com "/1.1/media/upload.json" -d "command=FINALIZE&media_id=#{init[:media_id]}"}
+          finalize = Twitter::REST::Request.new(self, :post, 'https://upload.twitter.com/1.1/media/upload.json',
+                                                command: 'FINALIZE', media_id: init[:media_id]).perform
+          puts finalize.inspect
+          if finalize[:processing_info]
+            sleep finalize[:processing_info][:check_after_secs]
+            state = ''
+            until state == 'failed' || state == 'succeeded'
+              puts "*** STATUS"
+              puts %{twurl -H upload.twitter.com "/1.1/media/upload.json?command=STATUS&media_id=#{init[:media_id]}"}
+              status = Twitter::REST::Request.new(self, :get, 'https://upload.twitter.com/1.1/media/upload.json',
+                                                  command: 'STATUS', media_id: init[:media_id]).perform
+              state = status[:processing_info][:state]
+              if state == 'pending' || state == 'in_progress'
+                puts status.inspect
+                sleep status[:processing_info][:check_after_secs] || finalize[:processing_info][:check_after_secs]
+              end
+            end
+            raise Twitter::Error::BadRequest if state == 'failed'
+            status
+          else
+            finalize
+          end
         end
       end
 
