@@ -337,12 +337,8 @@ module Twitter
             total_bytes: media.size
           }
           puts "*** INIT"
-          if media.size > 15728640
-            init_params[:media_category] = 'tweet_video'
-            # puts %{twurl -H upload.twitter.com "/1.1/media/upload.json" -d "command=INIT&media_type=video/mp4&media_category=tweet_video&total_bytes=#{media.size}"}
-          else
-            # puts %{twurl -H upload.twitter.com "/1.1/media/upload.json" -d "command=INIT&media_type=video/mp4&total_bytes=#{media.size}"}
-          end
+          init_params[:media_category] = 'tweet_video'
+          # puts %{twurl -H upload.twitter.com "/1.1/media/upload.json" -d "command=INIT&media_type=video/mp4&media_category=tweet_video&total_bytes=#{media.size}"}
 
 
           init = Twitter::REST::Request.new(self, :post, 'https://upload.twitter.com/1.1/media/upload.json',
